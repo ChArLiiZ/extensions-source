@@ -274,15 +274,25 @@ class Jinmantiantang : ParsedHttpSource(), ConfigurableSource {
 
     override fun chapterListParse(response: Response): List<SChapter> {
         val document = mangaDetailsResolve(response)
+        // Parse all dates and find the latest one
+        val dates = document.select("[itemprop=datePublished]").map {
+            dateFormat.tryParse(it.attr("content"))
+        }
+        val mangaDate = dates.maxOrNull() ?: 0L
+
         if (document.select("div[id=episode-block] a li").size == 0) {
             val singleChapter = SChapter.create().apply {
                 name = "单章节"
                 url = document.select("#album_photo_cover > div.thumb-overlay > a").attr("href")
-                date_upload = dateFormat.tryParse(document.select("[itemprop=datePublished]").last()!!.attr("content"))
+                date_upload = mangaDate
             }
             return listOf(singleChapter)
         }
-        return document.select(chapterListSelector()).map { chapterFromElement(it) }.reversed()
+        return document.select(chapterListSelector()).map {
+            chapterFromElement(it).apply {
+                date_upload = mangaDate
+            }
+        }.reversed()
     }
 
     // 漫画图片信息
