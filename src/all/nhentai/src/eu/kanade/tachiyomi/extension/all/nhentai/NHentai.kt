@@ -110,24 +110,36 @@ open class NHentai(
             if (img.hasAttr("data-src")) img.attr("abs:data-src") else img.attr("abs:src")
         }
 
-        // 從 URL 提取 gallery ID 來構建 description
-        // URL 格式: /g/123456/
-        val galleryId = url.trim('/').split('/').lastOrNull()
+        // 從列表頁面提取頁數資訊
+        // 嘗試多種方式提取頁數
+        var pages: String? = null
 
-        // 從列表頁面提取可見的資訊
-        // NHentai 在每個 gallery 底部顯示語言和頁數，如 "English 25 pages"
+        // 方法 1: 從 caption div 提取（例如 "English 25 pages"）
         val captionText = element.select("div.caption").text()
+        if (captionText.isNotEmpty()) {
+            pages = Regex("""\b(\d+)\s+pages?\b""", RegexOption.IGNORE_CASE)
+                .find(captionText)?.groupValues?.get(1)
+        }
 
-        // 提取頁數 - 格式通常是 "English 25 pages" 或 "25 pages"
-        val pages = Regex("""\b(\d+)\s+pages?\b""", RegexOption.IGNORE_CASE)
-            .find(captionText)?.groupValues?.get(1)
+        // 方法 2: 從整個 gallery 元素的文字中提取
+        if (pages == null) {
+            val allText = element.text()
+            pages = Regex("""\b(\d+)\s+pages?\b""", RegexOption.IGNORE_CASE)
+                .find(allText)?.groupValues?.get(1)
+        }
+
+        // 方法 3: 從 data-tags 屬性提取（如果存在）
+        if (pages == null) {
+            val dataTags = element.attr("data-tags")
+            if (dataTags.isNotEmpty()) {
+                pages = Regex(""""pages":\s*(\d+)""")
+                    .find(dataTags)?.groupValues?.get(1)
+            }
+        }
 
         // 構建 description，包含頁數資訊
-        if (pages != null || galleryId != null) {
-            description = buildString {
-                pages?.let { append("Pages: $it\n") }
-                galleryId?.let { append("Gallery ID: $it\n") }
-            }
+        if (pages != null) {
+            description = "Pages: $pages\n"
         }
     }
 
