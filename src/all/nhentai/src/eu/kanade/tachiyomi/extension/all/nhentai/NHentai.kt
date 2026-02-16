@@ -107,6 +107,21 @@ open class NHentai(
         thumbnail_url = element.selectFirst(".cover img")!!.let { img ->
             if (img.hasAttr("data-src")) img.attr("abs:data-src") else img.attr("abs:src")
         }
+
+        // 提取頁數和收藏數，存入 description 以便在瀏覽時顯示
+        val pages = element.select("div.caption").text().let { caption ->
+            Regex("""(\d+) pages""").find(caption)?.groupValues?.get(1)
+        }
+        val favorites = element.select("div.caption").text().let { caption ->
+            Regex("""(\d+(?:,\d+)*)\s*❤""").find(caption)?.groupValues?.get(1)?.replace(",", "")
+        }
+
+        if (pages != null || favorites != null) {
+            description = buildString {
+                pages?.let { append("Pages: $it\n") }
+                favorites?.let { append("Favorited by: $it\n") }
+            }
+        }
     }
 
     override fun latestUpdatesNextPageSelector() = "#content > section.pagination > a.next"
