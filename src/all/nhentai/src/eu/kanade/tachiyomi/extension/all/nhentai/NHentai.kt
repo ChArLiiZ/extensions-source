@@ -110,36 +110,38 @@ open class NHentai(
             if (img.hasAttr("data-src")) img.attr("abs:data-src") else img.attr("abs:src")
         }
 
-        // 從列表頁面提取頁數資訊
-        // 嘗試多種方式提取頁數
-        var pages: String? = null
+        // 從列表頁面提取頁數和收藏數資訊
+        val description = StringBuilder()
 
-        // 方法 1: 從 caption div 提取（例如 "English 25 pages"）
-        val captionText = element.select("div.caption").text()
-        if (captionText.isNotEmpty()) {
-            pages = Regex("""\b(\d+)\s+pages?\b""", RegexOption.IGNORE_CASE)
-                .find(captionText)?.groupValues?.get(1)
+        // 提取頁數：尋找 "25 pages" 或 "25pages" 或在 caption 中的頁數信息
+        val captionText = element.select(".caption").text()
+        val pageMatch = Regex("""(\d+)\s*pages?\b""", RegexOption.IGNORE_CASE).find(captionText)
+        pageMatch?.groupValues?.get(1)?.let { pages ->
+            description.append("Pages: $pages\n")
         }
 
-        // 方法 2: 從整個 gallery 元素的文字中提取
-        if (pages == null) {
-            val allText = element.text()
-            pages = Regex("""\b(\d+)\s+pages?\b""", RegexOption.IGNORE_CASE)
-                .find(allText)?.groupValues?.get(1)
+        // 提取收藏數：在 caption 或 gallery 元素中搜尋收藏計數
+        // 通常格式為 "♥ 1234" 或類似的標記
+        val favMatch = Regex("""♥\s*(\d+)|favorites?[:\s]+(\d+)""", RegexOption.IGNORE_CASE)
+            .find(element.text())
+        if (favMatch != null) {
+            val favCount = favMatch.groupValues[1].takeIf { it.isNotEmpty() }
+                ?: favMatch.groupValues[2]
+            description.append("Favorited by: $favCount\n")
         }
 
-        // 方法 3: 從 data-tags 屬性提取（如果存在）
-        if (pages == null) {
+        // 如果從文本沒提取到收藏數，嘗試從 data 屬性提取
+        if (favMatch == null) {
             val dataTags = element.attr("data-tags")
             if (dataTags.isNotEmpty()) {
-                pages = Regex(""""pages":\s*(\d+)""")
-                    .find(dataTags)?.groupValues?.get(1)
+                Regex(""""num_favorites":\s*(\d+)""").find(dataTags)?.let {
+                    description.append("Favorited by: ${it.groupValues[1]}\n")
+                }
             }
         }
 
-        // 構建 description，包含頁數資訊
-        if (pages != null) {
-            description = "Pages: $pages\n"
+        if (description.isNotEmpty()) {
+            this.description = description.toString().trim()
         }
     }
 
