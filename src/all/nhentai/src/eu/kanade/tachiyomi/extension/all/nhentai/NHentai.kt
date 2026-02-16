@@ -39,7 +39,8 @@ import uy.kohesive.injekt.injectLazy
 open class NHentai(
     override val lang: String,
     private val nhLang: String,
-) : ConfigurableSource, ParsedHttpSource() {
+) : ParsedHttpSource(),
+    ConfigurableSource {
 
     final override val baseUrl = "https://nhentai.net"
 
@@ -100,7 +101,8 @@ open class NHentai(
     override fun latestUpdatesSelector() = "#content .container:not(.index-popular) .gallery"
 
     override fun latestUpdatesFromElement(element: Element) = SManga.create().apply {
-        setUrlWithoutDomain(element.select("a").attr("href"))
+        val url = element.select("a").attr("href")
+        setUrlWithoutDomain(url)
         title = element.select("a > div").text().replace("\"", "").let {
             if (displayFullTitle) it.trim() else it.shortenTitle()
         }
@@ -108,18 +110,23 @@ open class NHentai(
             if (img.hasAttr("data-src")) img.attr("abs:data-src") else img.attr("abs:src")
         }
 
-        // 提取頁數和收藏數，存入 description 以便在瀏覽時顯示
-        val pages = element.select("div.caption").text().let { caption ->
-            Regex("""(\d+) pages""").find(caption)?.groupValues?.get(1)
-        }
-        val favorites = element.select("div.caption").text().let { caption ->
-            Regex("""(\d+(?:,\d+)*)\s*❤""").find(caption)?.groupValues?.get(1)?.replace(",", "")
-        }
+        // 從 URL 提取 gallery ID 來構建 description
+        // URL 格式: /g/123456/
+        val galleryId = url.trim('/').split('/').lastOrNull()
 
-        if (pages != null || favorites != null) {
+        // 從列表頁面提取可見的資訊
+        // NHentai 在每個 gallery 底部顯示語言和頁數，如 "English 25 pages"
+        val captionText = element.select("div.caption").text()
+
+        // 提取頁數 - 格式通常是 "English 25 pages" 或 "25 pages"
+        val pages = Regex("""\b(\d+)\s+pages?\b""", RegexOption.IGNORE_CASE)
+            .find(captionText)?.groupValues?.get(1)
+
+        // 構建 description，包含頁數資訊
+        if (pages != null || galleryId != null) {
             description = buildString {
                 pages?.let { append("Pages: $it\n") }
-                favorites?.let { append("Favorited by: $it\n") }
+                galleryId?.let { append("Gallery ID: $it\n") }
             }
         }
     }
@@ -134,21 +141,21 @@ open class NHentai(
 
     override fun popularMangaNextPageSelector() = latestUpdatesNextPageSelector()
 
-    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
-        return when {
-            query.startsWith(PREFIX_ID_SEARCH) -> {
-                val id = query.removePrefix(PREFIX_ID_SEARCH)
-                client.newCall(searchMangaByIdRequest(id))
-                    .asObservableSuccess()
-                    .map { response -> searchMangaByIdParse(response, id) }
-            }
-            query.toIntOrNull() != null -> {
-                client.newCall(searchMangaByIdRequest(query))
-                    .asObservableSuccess()
-                    .map { response -> searchMangaByIdParse(response, query) }
-            }
-            else -> super.fetchSearchManga(page, query, filters)
+    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> = when {
+        query.startsWith(PREFIX_ID_SEARCH) -> {
+            val id = query.removePrefix(PREFIX_ID_SEARCH)
+            client.newCall(searchMangaByIdRequest(id))
+                .asObservableSuccess()
+                .map { response -> searchMangaByIdParse(response, id) }
         }
+
+        query.toIntOrNull() != null -> {
+            client.newCall(searchMangaByIdRequest(query))
+                .asObservableSuccess()
+                .map { response -> searchMangaByIdParse(response, query) }
+        }
+
+        else -> super.fetchSearchManga(page, query, filters)
     }
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
@@ -331,16 +338,17 @@ open class NHentai(
 
     private class FavoriteFilter : Filter.CheckBox("Show favorites only", false)
 
-    private class SortFilter : UriPartFilter(
-        "Sort By",
-        arrayOf(
-            Pair("Popular: All Time", "popular"),
-            Pair("Popular: Month", "popular-month"),
-            Pair("Popular: Week", "popular-week"),
-            Pair("Popular: Today", "popular-today"),
-            Pair("Recent", "date"),
-        ),
-    )
+    private class SortFilter :
+        UriPartFilter(
+            "Sort By",
+            arrayOf(
+                Pair("Popular: All Time", "popular"),
+                Pair("Popular: Month", "popular-month"),
+                Pair("Popular: Week", "popular-week"),
+                Pair("Popular: Today", "popular-today"),
+                Pair("Recent", "date"),
+            ),
+        )
 
     private inline fun <reified T> String.parseAs(): T {
         val data = Regex("""\\u([0-9A-Fa-f]{4})""").replace(this) {
@@ -350,8 +358,7 @@ open class NHentai(
             data,
         )
     }
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        Filter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : Filter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
